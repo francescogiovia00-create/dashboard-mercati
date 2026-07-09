@@ -119,7 +119,7 @@ TEMPLATE_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mercati — Live</title>
+<title>Mercati finanziari</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -129,6 +129,7 @@ TEMPLATE_HTML = """<!DOCTYPE html>
         --bg-card: #131C2E;
         --bg-card-hover: #1B2740;
         --accent-gold: #D4A017;
+        --name-giallo: #FFD60A;
         --positive: #4FAE7D;
         --negative: #E2725B;
         --text-primary: #EDEFF2;
@@ -242,7 +243,7 @@ TEMPLATE_HTML = """<!DOCTYPE html>
     .card.down { border-left-color: var(--negative); }
     .card.unavailable { border-left-color: var(--hairline); opacity: 0.6; }
     .card-header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px; }
-    .card-name { font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+    .card-name { font-size: 13px; color: var(--name-giallo); font-weight: 600; }
     .live-inline { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; background: var(--text-secondary); }
     .live-inline.live { background: var(--positive); box-shadow: 0 0 0 0 rgba(79, 174, 125, 0.6); animation: pulse 2s infinite; }
     .card-badge { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; white-space: nowrap; }
@@ -275,7 +276,7 @@ TEMPLATE_HTML = """<!DOCTYPE html>
 <div class="page">
     <header class="hero">
         <div class="eyebrow"><span class="live-dot"></span> Live — aggiornamento automatico</div>
-        <h1>Mercati in tempo (quasi) reale</h1>
+        <h1>Mercati finanziari</h1>
         <div class="sottotitolo" id="sottotitolo">In attesa del primo aggiornamento…</div>
         <div class="summary-chips">
             <span class="chip up" id="chip-up">0 in rialzo</span>
