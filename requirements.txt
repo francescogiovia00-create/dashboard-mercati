@@ -1,0 +1,10 @@
+# Versioni "a fascia" per proteggersi da aggiornamenti che rompono (soprattutto
+# yfinance, che cambia spesso). Per la MASSIMA stabilita', dopo che tutto
+# funziona in locale, fissa le versioni esatte con:
+#     pip freeze > requirements.txt
+# e poi ricontrolla che restino solo le righe qui sotto.
+requests>=2.31,<3
+feedparser>=6.0,<7
+yfinance>=0.2.40,<0.3
+pandas>=2.0,<3
+tzdata>=2024.1
