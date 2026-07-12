@@ -5,8 +5,9 @@ import threading
 import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
-from mercati_lib import collect_market_data, get_relevant_news
+from mercati_lib import collect_market_data, get_relevant_news, get_storico_ticker
 
 # Forza l'output di print() a comparire SUBITO nei log (es. su Render), invece
 # di restare "bufferizzato" e apparire solo a intermittenza o in ritardo.
@@ -266,6 +267,56 @@ TEMPLATE_HTML = """<!DOCTYPE html>
     .news-empty { font-size: 13px; color: var(--text-secondary); padding: 8px 0; }
     footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--hairline); font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-secondary); }
     .stato-connessione { color: var(--negative); }
+    /* --- Barra strumenti: ordina + filtra --- */
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-bottom: 18px; }
+    .toolbar-group { display: flex; align-items: center; gap: 8px; }
+    .toolbar-group > label {
+        font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--text-secondary);
+    }
+    .toolbar select {
+        background: var(--bg-card); color: var(--text-primary);
+        border: 1px solid var(--hairline); border-radius: 8px; padding: 7px 12px;
+        font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer;
+    }
+    .toolbar select:focus { outline: none; border-color: var(--accent-gold); }
+    .filtri { flex-wrap: wrap; }
+    .filtri button {
+        background: transparent; color: var(--text-secondary);
+        border: 1px solid var(--hairline); border-radius: 999px; padding: 6px 14px;
+        font-family: 'IBM Plex Mono', monospace; font-size: 12px; cursor: pointer;
+        transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    }
+    .filtri button:hover { color: var(--text-primary); border-color: rgba(237,239,242,0.25); }
+    .filtri button.attivo { color: var(--bg-deep); background: var(--accent-gold); border-color: var(--accent-gold); font-weight: 500; }
+    .card.clickabile { cursor: pointer; }
+    .card.clickabile:hover { transform: translateY(-2px); }
+    .card { transition: background 0.4s ease, border-color 0.4s ease, transform 0.15s ease; }
+    .empty-filtro { grid-column: 1 / -1; padding: 28px 0; text-align: center; color: var(--text-secondary); font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+
+    /* --- Modal grafico storico --- */
+    .modal-overlay {
+        position: fixed; inset: 0; background: rgba(7, 11, 20, 0.72);
+        backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center;
+        padding: 24px; z-index: 50;
+    }
+    .modal-overlay.aperto { display: flex; }
+    .modal-box {
+        background: var(--bg-card); border: 1px solid var(--hairline); border-radius: 14px;
+        width: 100%; max-width: 760px; padding: 26px 28px 30px; position: relative;
+        box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+    }
+    .modal-close {
+        position: absolute; top: 16px; right: 18px; background: transparent; border: none;
+        color: var(--text-secondary); font-size: 26px; line-height: 1; cursor: pointer; padding: 4px;
+    }
+    .modal-close:hover { color: var(--text-primary); }
+    .modal-titolo { font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 700; color: var(--name-giallo); margin-bottom: 6px; padding-right: 32px; }
+    .modal-sub { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--text-secondary); margin-bottom: 18px; }
+    .modal-chart { width: 100%; }
+    .modal-chart svg { width: 100%; height: auto; display: block; }
+    .chart-axis { font-family: 'IBM Plex Mono', monospace; font-size: 10px; fill: var(--text-secondary); }
+
     @media (max-width: 600px) { .cards-grid { grid-template-columns: 1fr 1fr; } }
 </style>
 </head>
@@ -285,12 +336,40 @@ TEMPLATE_HTML = """<!DOCTYPE html>
     </header>
 
     <div class="section-title">Portafoglio &amp; strumenti seguiti</div>
+    <div class="toolbar">
+        <div class="toolbar-group">
+            <label for="ordina">Ordina</label>
+            <select id="ordina">
+                <option value="nome">Nome (A–Z)</option>
+                <option value="variazione">Variazione %</option>
+                <option value="ytd">YTD %</option>
+                <option value="volume">Rapporto volume</option>
+                <option value="prezzo">Prezzo</option>
+            </select>
+        </div>
+        <div class="toolbar-group filtri" id="filtri">
+            <button data-filtro="tutti" class="attivo">Tutti</button>
+            <button data-filtro="rialzo">In rialzo</button>
+            <button data-filtro="ribasso">In ribasso</button>
+            <button data-filtro="volume">Volume anomalo</button>
+            <button data-filtro="nd">Non disp.</button>
+        </div>
+    </div>
     <div class="cards-grid" id="cards-grid"></div>
 
     <div class="section-title">Notizie correlate</div>
     <div class="news-columns" id="news-columns"></div>
 
     <footer id="footer">Connessione al server in corso…</footer>
+</div>
+
+<div class="modal-overlay" id="modal">
+    <div class="modal-box">
+        <button class="modal-close" id="modal-close" aria-label="Chiudi">&times;</button>
+        <div class="modal-titolo" id="modal-titolo"></div>
+        <div class="modal-sub" id="modal-sub"></div>
+        <div class="modal-chart" id="modal-chart"></div>
+    </div>
 </div>
 
 <script>
@@ -324,10 +403,53 @@ function costruisciTicker(risultati) {
     document.getElementById('ticker-track').innerHTML = pezzi.join('').repeat(2);
 }
 
-function costruisciCard(risultati) {
+// Stato dell'interfaccia: ultimi dati ricevuti + criterio di ordinamento e filtro
+// scelti dall'utente. Ordinare/filtrare NON richiede una nuova chiamata al
+// server: si ridisegnano le card a partire da STATO.risultati.
+const STATO = { risultati: {}, ordine: 'nome', filtro: 'tutti' };
+
+function passaFiltro(dati) {
+    switch (STATO.filtro) {
+        case 'rialzo': return dati && dati.change >= 0;
+        case 'ribasso': return dati && dati.change < 0;
+        case 'volume': return dati && dati.rapporto_volume && dati.rapporto_volume >= 1.5;
+        case 'nd': return !dati;
+        default: return true;
+    }
+}
+
+function valoreOrdine(dati) {
+    switch (STATO.ordine) {
+        case 'variazione': return dati.pct_change;
+        case 'ytd': return (dati.ytd_pct !== null && dati.ytd_pct !== undefined) ? dati.ytd_pct : -Infinity;
+        case 'volume': return dati.rapporto_volume || -Infinity;
+        case 'prezzo': return dati.last_close;
+        default: return 0;
+    }
+}
+
+function confrontaVoci([nomeA, a], [nomeB, b]) {
+    // Gli strumenti non disponibili finiscono sempre in fondo.
+    if (!a && b) return 1;
+    if (a && !b) return -1;
+    if (!a && !b) return nomeA.localeCompare(nomeB, 'it');
+    if (STATO.ordine === 'nome') return nomeA.localeCompare(nomeB, 'it');
+    return valoreOrdine(b) - valoreOrdine(a); // numerico: decrescente (i "top" in cima)
+}
+
+function renderCards() {
     const contenitore = document.getElementById('cards-grid');
     contenitore.innerHTML = '';
-    for (const [nome, dati] of Object.entries(risultati)) {
+    const voci = Object.entries(STATO.risultati)
+        .filter(([nome, dati]) => passaFiltro(dati))
+        .sort(confrontaVoci);
+
+    if (voci.length === 0) {
+        contenitore.innerHTML = '<div class="empty-filtro">Nessuno strumento corrisponde al filtro.</div>';
+        return;
+    }
+
+    for (const [nome, dati] of voci) {
         const card = document.createElement('div');
         if (!dati) {
             card.className = 'card unavailable';
@@ -335,6 +457,8 @@ function costruisciCard(risultati) {
             contenitore.appendChild(card);
             continue;
         }
+        card.dataset.nome = nome;
+        card.dataset.ticker = dati.ticker || '';
         const classe = dati.change >= 0 ? 'up' : 'down';
         const freccia = classe === 'up' ? '▲' : '▼';
         const ytdTxt = (dati.ytd_pct !== null && dati.ytd_pct !== undefined) ? `${dati.ytd_pct >= 0 ? '+' : ''}${formattaNumero(dati.ytd_pct)}%` : 'n/d';
@@ -345,7 +469,7 @@ function costruisciCard(risultati) {
             ? '<span class="live-inline live" title="In tempo reale (ritardo ~15 min)"></span>'
             : '<span class="live-inline" title="Mercato chiuso — ultima chiusura"></span>';
 
-        card.className = `card ${classe}`;
+        card.className = `card clickabile ${classe}`;
         card.innerHTML = `
             <div class="card-header">
                 <span class="card-name">${statoLive}${escapeHtml(nome)}</span>
@@ -395,13 +519,99 @@ async function aggiornaDashboard() {
         document.getElementById('chip-down').textContent = `${dati.negativi} in ribasso`;
         document.getElementById('footer').innerHTML = `Prezzi da Yahoo Finance (tempo reale con ~15 min di ritardo, o ultima chiusura a mercato chiuso) · Notizie da Financial Times, Il Sole 24 Ore, ANSA, Teleborsa · Il pallino verde = mercato aperto`;
 
+        STATO.risultati = dati.risultati;
         costruisciTicker(dati.risultati);
-        costruisciCard(dati.risultati);
+        renderCards();
         costruisciNotizie(dati.news);
     } catch (errore) {
         document.getElementById('footer').innerHTML = '<span class="stato-connessione">Connessione al server persa — verifica che lo script Python sia ancora in esecuzione.</span>';
     }
 }
+
+// --- Grafico storico (dettaglio al click su una card) ---
+function disegnaGrafico(serie) {
+    const sub = document.getElementById('modal-sub');
+    const cont = document.getElementById('modal-chart');
+    if (!serie || serie.length < 2) {
+        sub.textContent = 'Storico non disponibile per questo strumento.';
+        cont.innerHTML = '';
+        return;
+    }
+    const W = 720, H = 300, padL = 6, padR = 6, padT = 14, padB = 26;
+    const valori = serie.map(p => p.c);
+    const min = Math.min(...valori), max = Math.max(...valori);
+    const primo = serie[0], ultimo = serie[serie.length - 1];
+    const salita = ultimo.c >= primo.c;
+    const colore = salita ? '#4FAE7D' : '#E2725B';
+    const nX = i => padL + (i / (serie.length - 1)) * (W - padL - padR);
+    const nY = c => padT + (1 - (c - min) / ((max - min) || 1)) * (H - padT - padB);
+    const punti = serie.map((p, i) => `${nX(i).toFixed(1)},${nY(p.c).toFixed(1)}`).join(' ');
+    const area = `${padL.toFixed(1)},${(H - padB).toFixed(1)} ${punti} ${(W - padR).toFixed(1)},${(H - padB).toFixed(1)}`;
+
+    const dataInizio = primo.t.split('-').reverse().join('/');
+    const dataFine = ultimo.t.split('-').reverse().join('/');
+
+    cont.innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">
+            <defs>
+                <linearGradient id="grad-area" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="${colore}" stop-opacity="0.28"/>
+                    <stop offset="100%" stop-color="${colore}" stop-opacity="0"/>
+                </linearGradient>
+            </defs>
+            <polygon points="${area}" fill="url(#grad-area)"/>
+            <polyline points="${punti}" fill="none" stroke="${colore}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            <text class="chart-axis" x="${padL}" y="${nY(max) - 4}">max ${formattaNumero(max)}</text>
+            <text class="chart-axis" x="${padL}" y="${nY(min) + 12}">min ${formattaNumero(min)}</text>
+            <text class="chart-axis" x="${padL}" y="${H - 6}">${dataInizio}</text>
+            <text class="chart-axis" x="${W - padR}" y="${H - 6}" text-anchor="end">${dataFine}</text>
+        </svg>`;
+
+    const variazione = ((ultimo.c - primo.c) / primo.c) * 100;
+    sub.innerHTML = `Ultimo anno · ${dataInizio} → ${dataFine} · `
+        + `<span style="color:${colore}">${variazione >= 0 ? '+' : ''}${formattaNumero(variazione)}% sul periodo</span>`;
+}
+
+async function apriDettaglio(nome, ticker) {
+    const modal = document.getElementById('modal');
+    modal.classList.add('aperto');
+    document.getElementById('modal-titolo').textContent = nome;
+    document.getElementById('modal-sub').textContent = (ticker || '') + ' — caricamento storico…';
+    document.getElementById('modal-chart').innerHTML = '';
+    if (!ticker) { document.getElementById('modal-sub').textContent = 'Ticker non disponibile.'; return; }
+    try {
+        const risposta = await fetch('/api/storico?ticker=' + encodeURIComponent(ticker), { cache: 'no-store' });
+        const dati = await risposta.json();
+        disegnaGrafico(dati.storico);
+    } catch (errore) {
+        document.getElementById('modal-sub').textContent = 'Impossibile caricare lo storico.';
+    }
+}
+
+function chiudiModal() { document.getElementById('modal').classList.remove('aperto'); }
+
+// --- Wiring eventi (una sola volta) ---
+document.getElementById('cards-grid').addEventListener('click', (e) => {
+    const card = e.target.closest('.card.clickabile');
+    if (card) apriDettaglio(card.dataset.nome, card.dataset.ticker);
+});
+document.getElementById('ordina').addEventListener('change', (e) => {
+    STATO.ordine = e.target.value;
+    renderCards();
+});
+document.getElementById('filtri').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-filtro]');
+    if (!btn) return;
+    document.querySelectorAll('#filtri button').forEach(b => b.classList.remove('attivo'));
+    btn.classList.add('attivo');
+    STATO.filtro = btn.dataset.filtro;
+    renderCards();
+});
+document.getElementById('modal-close').addEventListener('click', chiudiModal);
+document.getElementById('modal').addEventListener('click', (e) => {
+    if (e.target.id === 'modal') chiudiModal(); // click sullo sfondo scuro
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') chiudiModal(); });
 
 aggiornaDashboard();
 setInterval(aggiornaDashboard, POLLING_MS);
@@ -422,6 +632,19 @@ class GestoreRichieste(BaseHTTPRequestHandler):
         if self.path.startswith("/api/dati"):
             corpo = dati_come_json().encode("utf-8")
             self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(corpo)))
+            self.end_headers()
+            self.wfile.write(corpo)
+        elif self.path.startswith("/api/storico"):
+            query = parse_qs(urlparse(self.path).query)
+            ticker = (query.get("ticker") or [""])[0]
+            serie = get_storico_ticker(ticker) if ticker else None
+            corpo = json.dumps({
+                "ticker": ticker,
+                "storico": serie or [],
+            }).encode("utf-8")
+            self.send_response(200 if serie else 404)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(corpo)))
             self.end_headers()

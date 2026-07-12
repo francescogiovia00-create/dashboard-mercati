@@ -2,9 +2,8 @@
 mercati_lib.py
 ==============
 Modulo condiviso: configurazione strumenti/feed e funzioni di recupero dati
-(mercati + notizie). Usato sia da report_mercati_telegram.py (report giornaliero
-su Telegram) sia da dashboard_server.py (dashboard live nel browser), cosi' la
-lista di strumenti e la logica di calcolo restano in un solo posto.
+(mercati + notizie). Usato da dashboard_server.py (dashboard live nel browser),
+cosi' la lista di strumenti e la logica di calcolo restano in un solo posto.
 """
 
 import re
@@ -149,19 +148,6 @@ def _compila_keyword(keyword: str):
     return re.compile(r"\b" + re.escape(keyword) + r"\b", re.IGNORECASE)
 
 
-def escape_markdown(testo: str) -> str:
-    """
-    Neutralizza i caratteri speciali di Telegram Markdown (_ * ` [ ]) in testi
-    che arrivano da fonti esterne (titoli RSS), cosi' non rompono il messaggio.
-    Usato SOLO dal report Telegram (vedi formatta_notizie_per_telegram).
-    """
-    if not testo:
-        return testo
-    for carattere in ["_", "*", "`", "[", "]"]:
-        testo = testo.replace(carattere, f"\\{carattere}")
-    return testo
-
-
 def _scarica_singolo_feed(nome_fonte: str, url_feed: str, headers: dict):
     """Scarica e fa il parsing di un singolo feed RSS; usata in parallelo."""
     try:
@@ -251,23 +237,6 @@ def get_relevant_news():
             for v in voci[:MAX_NEWS_PER_TOPIC]
         ]
     return risultati
-
-
-def formatta_notizie_per_telegram(news: dict) -> dict:
-    """
-    Converte l'output STRUTTURATO di get_relevant_news() in righe di testo gia'
-    pronte per Telegram (Markdown neutralizzato). Usala nel report Telegram:
-        from mercati_lib import get_relevant_news, formatta_notizie_per_telegram
-        righe_per_topic = formatta_notizie_per_telegram(get_relevant_news())
-    Restituisce {argomento: ["• Titolo — _Fonte_\\n  link", ...]}.
-    """
-    out = {}
-    for topic, voci in news.items():
-        out[topic] = [
-            f"• {escape_markdown(v['titolo'])} — _{escape_markdown(v['fonte'])}_\n  {v['link']}"
-            for v in voci
-        ]
-    return out
 
 
 # =====================================================================
@@ -381,6 +350,14 @@ def _estrai_base_da_daily(df):
     ytd_base = (float(chiuse_ytd.iloc[0])
                 if len(chiuse_ytd) >= 1 and float(chiuse_ytd.iloc[0]) else None)
 
+    # Serie storica completa (1 anno di chiusure) per il grafico di dettaglio:
+    # e' leggera (~252 punti) e non entra mai nel payload di /api/dati, viene
+    # letta separatamente dall'endpoint /api/storico solo quando serve.
+    storico = [
+        {"t": indice.strftime("%Y-%m-%d"), "c": float(valore)}
+        for indice, valore in chiuse.items()
+    ]
+
     return {
         "prev_close": prev_close,
         "daily_last": daily_last,
@@ -390,6 +367,7 @@ def _estrai_base_da_daily(df):
         "daily_high": float(high_serie.iloc[-1]) if len(high_serie) else daily_last,
         "daily_low": float(low_serie.iloc[-1]) if len(low_serie) else daily_last,
         "date": chiuse.index[-1].strftime("%d/%m/%Y"),
+        "storico": storico,
     }
 
 
@@ -496,6 +474,20 @@ def get_market_data(ticker: str):
     df_live = _estrai_frame(_scarica_intraday_batch([ticker]), ticker, 1)
     live = _estrai_live_da_intraday(df_live)
     return _componi_metriche(base, live, valuta_per_ticker(ticker), ticker)
+
+
+def get_storico_ticker(ticker: str):
+    """
+    Restituisce la serie storica a 1 anno di UN ticker come lista di
+    {"t": "AAAA-MM-GG", "c": chiusura}, oppure None se non e' in cache.
+    La base viene popolata da collect_market_data()/_aggiorna_base_cache(),
+    quindi in condizioni normali (dashboard avviata) e' gia' disponibile.
+    """
+    base = _BASE_CACHE.get(ticker)
+    if base is None:
+        _aggiorna_base_cache()  # tentativo di popolamento se la cache e' vuota
+        base = _BASE_CACHE.get(ticker)
+    return base.get("storico") if base else None
 
 
 def collect_market_data():
