@@ -68,6 +68,32 @@ VALUTE_OVERRIDE = {
     # "BTC-USD": "USD",
 }
 
+# Settore di ciascuno strumento, usato per il filtro "Settore" nella dashboard.
+# Per cambiare classificazione basta modificare la stringa; per un nuovo strumento
+# aggiungi una riga qui (se manca, finisce nel settore SETTORE_DEFAULT).
+SETTORI = {
+    "S&P 500": "Indici",
+    "Difesa Europea (Amundi DEFS)": "ETF",
+    "Semiconduttori (VanEck SMH)": "ETF",
+    "Mercato Europeo (iShares SMEA)": "ETF",
+    "Mercati Emergenti (iShares EIMI)": "ETF",
+    "S&P 500 UCITS (iShares CSSPX)": "ETF",
+    "Apple": "Tecnologia",
+    "Nvidia": "Semiconduttori",
+    "AMD": "Semiconduttori",
+    "Palantir": "Tecnologia",
+    "Caterpillar": "Industria",
+    "Samsung Electronics": "Semiconduttori",
+    "TSMC": "Semiconduttori",
+    "ASML": "Semiconduttori",
+    "Leonardo": "Difesa",
+    "Rheinmetall": "Difesa",
+    "Thales": "Difesa",
+    "Saab": "Difesa",
+    "Airbus": "Difesa",
+}
+SETTORE_DEFAULT = "Altro"
+
 
 def valuta_per_ticker(ticker: str) -> str:
     """Restituisce il codice valuta (EUR/USD/KRW...) o "" per gli indici (punti)."""
@@ -518,6 +544,7 @@ def collect_market_data():
         live = _estrai_live_da_intraday(df_live)
         metriche = _componi_metriche(base, live, valuta_per_ticker(ticker), ticker)
         if metriche is not None:
+            metriche["settore"] = SETTORI.get(nome, SETTORE_DEFAULT)
             if metriche["change"] >= 0:
                 positivi += 1
             else:

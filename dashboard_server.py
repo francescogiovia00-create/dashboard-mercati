@@ -50,7 +50,7 @@ CAMPI_NUMERICI = {
     "rapporto_volume", "ytd_pct", "high", "low",
 }
 # Campi non numerici passati cosi' come sono (stringhe / booleani).
-CAMPI_TESTO = {"valuta", "ticker", "live"}
+CAMPI_TESTO = {"valuta", "ticker", "live", "settore"}
 
 # Cache condivisa tra il thread di aggiornamento in background e le richieste del browser
 cache_dati = {
@@ -291,6 +291,10 @@ TEMPLATE_HTML = """<!DOCTYPE html>
     .filtri button.attivo { color: var(--bg-deep); background: var(--accent-gold); border-color: var(--accent-gold); font-weight: 500; }
     .card.clickabile { cursor: pointer; }
     .card.clickabile:hover { transform: translateY(-2px); }
+    .card-settore {
+        font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em;
+        text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;
+    }
     .card { transition: background 0.4s ease, border-color 0.4s ease, transform 0.15s ease; }
     .empty-filtro { grid-column: 1 / -1; padding: 28px 0; text-align: center; color: var(--text-secondary); font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
 
@@ -345,6 +349,12 @@ TEMPLATE_HTML = """<!DOCTYPE html>
                 <option value="ytd">YTD %</option>
                 <option value="volume">Rapporto volume</option>
                 <option value="prezzo">Prezzo</option>
+            </select>
+        </div>
+        <div class="toolbar-group">
+            <label for="settore">Settore</label>
+            <select id="settore">
+                <option value="tutti">Tutti i settori</option>
             </select>
         </div>
         <div class="toolbar-group filtri" id="filtri">
@@ -406,7 +416,7 @@ function costruisciTicker(risultati) {
 // Stato dell'interfaccia: ultimi dati ricevuti + criterio di ordinamento e filtro
 // scelti dall'utente. Ordinare/filtrare NON richiede una nuova chiamata al
 // server: si ridisegnano le card a partire da STATO.risultati.
-const STATO = { risultati: {}, ordine: 'nome', filtro: 'tutti' };
+const STATO = { risultati: {}, ordine: 'nome', filtro: 'tutti', settore: 'tutti' };
 
 function passaFiltro(dati) {
     switch (STATO.filtro) {
@@ -416,6 +426,27 @@ function passaFiltro(dati) {
         case 'nd': return !dati;
         default: return true;
     }
+}
+
+function passaSettore(dati) {
+    if (STATO.settore === 'tutti') return true;
+    return dati && dati.settore === STATO.settore;
+}
+
+// Popola il menu "Settore" con i settori realmente presenti nei dati, senza
+// perdere la scelta corrente. Ricostruisce solo se l'elenco e' cambiato.
+function aggiornaOpzioniSettore() {
+    const sel = document.getElementById('settore');
+    const settori = [...new Set(
+        Object.values(STATO.risultati).filter(Boolean).map(d => d.settore).filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, 'it'));
+    const attuali = [...sel.options].slice(1).map(o => o.value);
+    if (JSON.stringify(attuali) === JSON.stringify(settori)) return;
+    const scelto = sel.value;
+    sel.innerHTML = '<option value="tutti">Tutti i settori</option>'
+        + settori.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+    sel.value = (scelto === 'tutti' || settori.includes(scelto)) ? scelto : 'tutti';
+    STATO.settore = sel.value;
 }
 
 function valoreOrdine(dati) {
@@ -441,7 +472,7 @@ function renderCards() {
     const contenitore = document.getElementById('cards-grid');
     contenitore.innerHTML = '';
     const voci = Object.entries(STATO.risultati)
-        .filter(([nome, dati]) => passaFiltro(dati))
+        .filter(([nome, dati]) => passaFiltro(dati) && passaSettore(dati))
         .sort(confrontaVoci);
 
     if (voci.length === 0) {
@@ -469,8 +500,10 @@ function renderCards() {
             ? '<span class="live-inline live" title="In tempo reale (ritardo ~15 min)"></span>'
             : '<span class="live-inline" title="Mercato chiuso — ultima chiusura"></span>';
 
+        const settoreTag = dati.settore ? `<div class="card-settore">${escapeHtml(dati.settore)}</div>` : '';
         card.className = `card clickabile ${classe}`;
         card.innerHTML = `
+            ${settoreTag}
             <div class="card-header">
                 <span class="card-name">${statoLive}${escapeHtml(nome)}</span>
                 <span class="card-badge ${classe}">${freccia} ${dati.pct_change >= 0 ? '+' : ''}${formattaNumero(dati.pct_change)}%</span>
@@ -520,6 +553,7 @@ async function aggiornaDashboard() {
         document.getElementById('footer').innerHTML = `Prezzi da Yahoo Finance (tempo reale con ~15 min di ritardo, o ultima chiusura a mercato chiuso) · Notizie da Financial Times, Il Sole 24 Ore, ANSA, Teleborsa · Il pallino verde = mercato aperto`;
 
         STATO.risultati = dati.risultati;
+        aggiornaOpzioniSettore();
         costruisciTicker(dati.risultati);
         renderCards();
         costruisciNotizie(dati.news);
@@ -597,6 +631,10 @@ document.getElementById('cards-grid').addEventListener('click', (e) => {
 });
 document.getElementById('ordina').addEventListener('change', (e) => {
     STATO.ordine = e.target.value;
+    renderCards();
+});
+document.getElementById('settore').addEventListener('change', (e) => {
+    STATO.settore = e.target.value;
     renderCards();
 });
 document.getElementById('filtri').addEventListener('click', (e) => {
