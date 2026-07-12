@@ -41,6 +41,12 @@ TICKERS = {
     "Samsung Electronics": "005930.KS",
     "TSMC": "TSM",
     "ASML": "ASML",
+    # --- Difesa Europea ---
+    "Leonardo": "LDO.MI",
+    "Rheinmetall": "RHM.DE",
+    "Thales": "HO.PA",
+    "Saab": "SAAB-B.ST",
+    "Airbus": "AIR.PA",
     # --- Aggiungi qui i tuoi (esempi gia' pronti, togli il # per attivarli) ---
     # "FTSE MIB": "FTSEMIB.MI",
     # "Nasdaq 100": "^NDX",
@@ -55,7 +61,7 @@ VALUTE_SUFFISSO = {
     ".MI": "EUR", ".DE": "EUR", ".PA": "EUR", ".AS": "EUR", ".MC": "EUR",
     ".BR": "EUR", ".F": "EUR", ".L": "GBp", ".SW": "CHF", ".KS": "KRW",
     ".KQ": "KRW", ".T": "JPY", ".HK": "HKD", ".TO": "CAD", ".SS": "CNY",
-    ".SZ": "CNY",
+    ".SZ": "CNY", ".ST": "SEK",
 }
 # Eccezioni esplicite quando la regola sul suffisso non basta: "TICKER": "VALUTA"
 VALUTE_OVERRIDE = {

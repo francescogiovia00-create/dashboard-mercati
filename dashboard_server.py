@@ -386,7 +386,7 @@ function formattaNumero(valore, decimali = 2) {
 }
 
 function simboloValuta(codice) {
-    const mappa = { EUR: '€', USD: '$', GBP: '£', GBp: 'p', CHF: 'CHF', JPY: '¥', KRW: '₩', HKD: 'HK$', CAD: 'C$', CNY: '¥' };
+    const mappa = { EUR: '€', USD: '$', GBP: '£', GBp: 'p', CHF: 'CHF', JPY: '¥', KRW: '₩', HKD: 'HK$', CAD: 'C$', CNY: '¥', SEK: 'kr' };
     if (!codice) return '';
     return mappa[codice] || codice;
 }
